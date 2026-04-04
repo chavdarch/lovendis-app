@@ -23,21 +23,35 @@ NDIS Support Categories for reference:
 Respond with valid JSON only, no markdown, no other text. Example:
 {"provider_name":"Therapy Works","doc_date":"2024-01-15","amount":250.00,"document_type":"invoice","support_category":"01","description":"Occupational therapy session","confidence":0.92}`
 
-async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
-  // Use pdfjs-dist in legacy mode — works without native canvas
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) })
-  const pdf = await loadingTask.promise
-  const pages: string[] = []
-  for (let i = 1; i <= Math.min(pdf.numPages, 5); i++) {
-    const page = await pdf.getPage(i)
-    const content = await page.getTextContent()
-    const text = content.items
-      .map((item: { str?: string }) => item.str || '')
-      .join(' ')
-    pages.push(text)
+// Lightweight PDF text extraction — no native dependencies
+// Extracts readable strings from PDF binary without any canvas/DOM requirements
+function extractTextFromPdfBuffer(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  const text = new TextDecoder('latin1').decode(bytes)
+  
+  // Extract text between BT (Begin Text) and ET (End Text) markers
+  const strings: string[] = []
+  
+  // Match parenthesized strings (PDF text objects)
+  const parenRegex = /\(([^)\\]|\\.){1,200}\)/g
+  let match
+  while ((match = parenRegex.exec(text)) !== null) {
+    const s = match[0]
+      .slice(1, -1)
+      .replace(/\\n/g, ' ')
+      .replace(/\\r/g, ' ')
+      .replace(/\\t/g, ' ')
+      .replace(/\\\(/g, '(')
+      .replace(/\\\)/g, ')')
+      .replace(/\\\\/g, '\\')
+      .trim()
+    // Only keep strings that look like readable text (has letters/numbers)
+    if (s.length > 1 && /[a-zA-Z0-9]/.test(s) && !/^[01]+$/.test(s)) {
+      strings.push(s)
+    }
   }
-  return pages.join('\n').slice(0, 3000)
+  
+  return strings.join(' ').slice(0, 3000)
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +104,9 @@ export async function POST(req: NextRequest) {
       const pdfRes = await fetch(fetchUrl)
       if (!pdfRes.ok) throw new Error(`Failed to fetch PDF: ${pdfRes.status}`)
       const pdfBuffer = await pdfRes.arrayBuffer()
-      const pdfText = await extractPdfText(pdfBuffer)
+      const pdfText = extractTextFromPdfBuffer(pdfBuffer)
+
+      console.log('PDF text extracted:', pdfText.slice(0, 200))
 
       const response = await anthropic.messages.create({
         model: 'claude-opus-4-5',
