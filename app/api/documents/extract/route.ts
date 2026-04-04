@@ -1,11 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+import Anthropic from '@anthropic-ai/sdk'
 
 const EXTRACTION_PROMPT = `You are an expert at extracting information from Australian NDIS documents (receipts, invoices, therapy reports).
 
@@ -54,53 +50,54 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Determine if it's a PDF or image
-    const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name)
-    const isPDF = /\.pdf$/i.test(doc.file_name)
+    // Initialise Anthropic client only when needed (not at module load time)
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    })
 
+    const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name)
     let extractedData = null
 
     if (isImage) {
-      // Use GPT-4o vision for images
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
+      // Fetch image and convert to base64 for Claude vision
+      const imageRes = await fetch(fileUrl)
+      const imageBuffer = await imageRes.arrayBuffer()
+      const base64 = Buffer.from(imageBuffer).toString('base64')
+      const mimeType = doc.file_name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 500,
         messages: [
           {
             role: 'user',
             content: [
               {
-                type: 'text',
-                text: EXTRACTION_PROMPT,
+                type: 'image',
+                source: { type: 'base64', media_type: mimeType, data: base64 },
               },
-              {
-                type: 'image_url',
-                image_url: { url: fileUrl, detail: 'high' },
-              },
+              { type: 'text', text: EXTRACTION_PROMPT },
             ],
           },
         ],
-        max_tokens: 500,
-        temperature: 0,
       })
 
-      const content = response.choices[0]?.message?.content ?? ''
+      const content = response.content[0]?.type === 'text' ? response.content[0].text : ''
       extractedData = JSON.parse(content.trim())
-    } else if (isPDF) {
-      // For PDFs, use text extraction approach with GPT-4o
-      // Note: Full PDF text extraction would need additional library (pdf-parse)
-      // For MVP, we use GPT-4o with the URL directly
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
+    } else {
+      // For PDFs — use text-only prompt with filename context
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 500,
         messages: [
           {
             role: 'user',
-            content: `${EXTRACTION_PROMPT}\n\nNote: This is a PDF document at URL: ${fileUrl}\nFile name: ${doc.file_name}\n\nBased on the file name and any context available, provide your best extraction attempt. Set confidence appropriately low if you cannot read the actual content.`,
+            content: `${EXTRACTION_PROMPT}\n\nThis is a PDF document. File name: ${doc.file_name}\n\nBased on the file name, provide your best extraction attempt with low confidence since you cannot read the content directly.`,
           },
         ],
-        max_tokens: 500,
-        temperature: 0,
       })
-      const content = response.choices[0]?.message?.content ?? ''
+
+      const content = response.content[0]?.type === 'text' ? response.content[0].text : ''
       try {
         extractedData = JSON.parse(content.trim())
       } catch {
@@ -132,18 +129,10 @@ export async function POST(req: NextRequest) {
       console.error('Failed to update document:', updateError)
     }
 
-    return NextResponse.json({
-      success: true,
-      extracted: extractedData,
-    })
+    return NextResponse.json({ success: true, extracted: extractedData })
   } catch (err: unknown) {
     console.error('AI extraction error:', err)
     const message = err instanceof Error ? err.message : 'AI extraction failed'
-
-    // Don't fail silently — but also don't block the upload flow
-    return NextResponse.json(
-      { error: message, extracted: null },
-      { status: 422 }
-    )
+    return NextResponse.json({ error: message, extracted: null }, { status: 422 })
   }
 }

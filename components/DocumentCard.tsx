@@ -1,7 +1,7 @@
 import { Document } from '@/types'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { FileText, ExternalLink } from 'lucide-react'
-import CategoryBadge from './CategoryBadge'
+import CategoryBadge from '@/components/CategoryBadge'
 
 interface Props {
   document: Document
