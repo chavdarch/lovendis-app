@@ -23,6 +23,23 @@ NDIS Support Categories for reference:
 Respond with valid JSON only, no markdown, no other text. Example:
 {"provider_name":"Therapy Works","doc_date":"2024-01-15","amount":250.00,"document_type":"invoice","support_category":"01","description":"Occupational therapy session","confidence":0.92}`
 
+async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
+  // Use pdfjs-dist in legacy mode — works without native canvas
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) })
+  const pdf = await loadingTask.promise
+  const pages: string[] = []
+  for (let i = 1; i <= Math.min(pdf.numPages, 5); i++) {
+    const page = await pdf.getPage(i)
+    const content = await page.getTextContent()
+    const text = content.items
+      .map((item: { str?: string }) => item.str || '')
+      .join(' ')
+    pages.push(text)
+  }
+  return pages.join('\n').slice(0, 3000)
+}
+
 export async function POST(req: NextRequest) {
   const supabase = createRouteHandlerClient({ cookies })
   const { data: { session } } = await supabase.auth.getSession()
@@ -53,10 +70,8 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     })
 
-    // Generate a fresh signed URL server-side for reliable access
-    const filePath = `${session.user.id}/${doc.file_name}`
+    // Generate fresh signed URL server-side
     const storedUrl = doc.file_url || fileUrl
-    // Extract the storage path from the stored URL
     const pathMatch = storedUrl.match(/\/object\/sign\/documents\/(.+?)\?/) ||
                       storedUrl.match(/\/object\/authenticated\/documents\/(.+)/)
     let fetchUrl = storedUrl
@@ -72,13 +87,10 @@ export async function POST(req: NextRequest) {
     let extractedData = null
 
     if (isPDF) {
-      // Fetch PDF bytes and extract text using dynamic import
       const pdfRes = await fetch(fetchUrl)
+      if (!pdfRes.ok) throw new Error(`Failed to fetch PDF: ${pdfRes.status}`)
       const pdfBuffer = await pdfRes.arrayBuffer()
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse')
-      const pdfData = await pdfParse(Buffer.from(pdfBuffer))
-      const pdfText = (pdfData.text as string).slice(0, 3000)
+      const pdfText = await extractPdfText(pdfBuffer)
 
       const response = await anthropic.messages.create({
         model: 'claude-opus-4-5',
@@ -96,11 +108,13 @@ export async function POST(req: NextRequest) {
         const cleaned = content.replace(/```json\n?|```/g, '').trim()
         extractedData = JSON.parse(cleaned)
       } catch {
+        console.error('Failed to parse Claude response:', content)
         extractedData = { confidence: 0.1 }
       }
 
     } else if (isImage) {
       const imageRes = await fetch(fetchUrl)
+      if (!imageRes.ok) throw new Error(`Failed to fetch image: ${imageRes.status}`)
       const imageBuffer = await imageRes.arrayBuffer()
       const base64 = Buffer.from(imageBuffer).toString('base64')
       const mimeType = doc.file_name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
