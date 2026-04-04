@@ -47,7 +47,8 @@ export default function DocumentUploadClient({ userId, participants }: Props) {
 
     try {
       // 1. Upload to Supabase Storage
-      const filePath = `${userId}/${Date.now()}_${f.name}`
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const filePath = `${userId}/${Date.now()}_${safeName}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('documents')
         .upload(filePath, f, { upsert: false })
