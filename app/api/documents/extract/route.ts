@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const { data: doc, error: docError } = await supabase
     .from('documents')
-    .select('id, user_id, file_name')
+    .select('id, user_id, file_name, file_url')
     .eq('id', documentId)
     .eq('user_id', session.user.id)
     .single()
@@ -53,13 +53,27 @@ export async function POST(req: NextRequest) {
       apiKey: process.env.ANTHROPIC_API_KEY,
     })
 
+    // Generate a fresh signed URL server-side for reliable access
+    const filePath = `${session.user.id}/${doc.file_name}`
+    const storedUrl = doc.file_url || fileUrl
+    // Extract the storage path from the stored URL
+    const pathMatch = storedUrl.match(/\/object\/sign\/documents\/(.+?)\?/) ||
+                      storedUrl.match(/\/object\/authenticated\/documents\/(.+)/)
+    let fetchUrl = storedUrl
+    if (pathMatch) {
+      const { data: freshSigned } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(pathMatch[1], 300)
+      if (freshSigned?.signedUrl) fetchUrl = freshSigned.signedUrl
+    }
+
     const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name)
     const isPDF = /\.pdf$/i.test(doc.file_name)
     let extractedData = null
 
     if (isPDF) {
       // Fetch PDF bytes and extract text using dynamic import
-      const pdfRes = await fetch(fileUrl)
+      const pdfRes = await fetch(fetchUrl)
       const pdfBuffer = await pdfRes.arrayBuffer()
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const pdfParse = require('pdf-parse')
@@ -86,7 +100,7 @@ export async function POST(req: NextRequest) {
       }
 
     } else if (isImage) {
-      const imageRes = await fetch(fileUrl)
+      const imageRes = await fetch(fetchUrl)
       const imageBuffer = await imageRes.arrayBuffer()
       const base64 = Buffer.from(imageBuffer).toString('base64')
       const mimeType = doc.file_name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
