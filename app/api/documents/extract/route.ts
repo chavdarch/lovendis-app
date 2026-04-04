@@ -104,17 +104,26 @@ export async function POST(req: NextRequest) {
       const pdfRes = await fetch(fetchUrl)
       if (!pdfRes.ok) throw new Error(`Failed to fetch PDF: ${pdfRes.status}`)
       const pdfBuffer = await pdfRes.arrayBuffer()
-      const pdfText = extractTextFromPdfBuffer(pdfBuffer)
+      const base64Pdf = Buffer.from(pdfBuffer).toString('base64')
 
-      console.log('PDF text extracted:', pdfText.slice(0, 200))
-
+      // Send PDF directly to Claude — it natively understands PDF documents
       const response = await anthropic.messages.create({
         model: 'claude-opus-4-5',
         max_tokens: 500,
         messages: [
           {
             role: 'user',
-            content: `${EXTRACTION_PROMPT}\n\nHere is the extracted text from the PDF:\n\n${pdfText}`,
+            content: [
+              {
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: base64Pdf,
+                },
+              },
+              { type: 'text', text: EXTRACTION_PROMPT },
+            ],
           },
         ],
       })
