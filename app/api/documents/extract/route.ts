@@ -142,7 +142,12 @@ export async function POST(req: NextRequest) {
       if (!imageRes.ok) throw new Error(`Failed to fetch image: ${imageRes.status}`)
       const imageBuffer = await imageRes.arrayBuffer()
       const base64 = Buffer.from(imageBuffer).toString('base64')
-      const mimeType = doc.file_name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg'
+      // Detect actual image type from magic bytes rather than filename
+      const bytes = new Uint8Array(imageBuffer)
+      let mimeType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp' = 'image/jpeg'
+      if (bytes[0] === 0x89 && bytes[1] === 0x50) mimeType = 'image/png'
+      else if (bytes[0] === 0x47 && bytes[1] === 0x49) mimeType = 'image/gif'
+      else if (bytes[0] === 0x52 && bytes[1] === 0x49) mimeType = 'image/webp'
 
       const response = await anthropic.messages.create({
         model: 'claude-opus-4-5',
