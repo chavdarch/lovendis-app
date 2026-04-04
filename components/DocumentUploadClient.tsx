@@ -88,14 +88,12 @@ export default function DocumentUploadClient({ userId, participants }: Props) {
         body: JSON.stringify({ documentId: docData.id, fileUrl: url }),
       })
 
-      if (!extractRes.ok) {
-        // Don't fail the whole flow if AI extraction fails
-        console.warn('AI extraction failed, continuing without it')
-        setState('review')
-        return
-      }
-
       const extractData = await extractRes.json()
+      if (!extractRes.ok) {
+        // Log the error but don't block the flow — let user fill in manually
+        console.warn('AI extraction failed:', extractData.error)
+        setErrorMsg(`AI extraction: ${extractData.error || 'failed'}. Please fill in details manually.`)
+      }
       setExtracted(extractData.extracted || {})
       setUploadProgress(100)
       setState('review')
