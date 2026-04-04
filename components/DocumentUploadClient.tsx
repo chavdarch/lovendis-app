@@ -61,7 +61,7 @@ export default function DocumentUploadClient({ userId, participants }: Props) {
         .from('documents')
         .createSignedUrl(filePath, 3600)
 
-      const url = signedData?.signedUrl || ''
+      const url = (signedData as { signedUrl: string } | null)?.signedUrl || ''
       setFileUrl(url)
 
       // 3. Create document record
