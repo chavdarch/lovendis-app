@@ -20,7 +20,7 @@ NDIS Support Categories for reference:
 09 Daily Activities (CB), 10 Plan Management, 11 Support Coordination,
 12 Improved Living, 13 Improved Health, 14 Improved Learning, 15 Increased Work
 
-Respond with valid JSON only, no other text. Example:
+Respond with valid JSON only, no markdown, no other text. Example:
 {"provider_name":"Therapy Works","doc_date":"2024-01-15","amount":250.00,"document_type":"invoice","support_category":"01","description":"Occupational therapy session","confidence":0.92}`
 
 export async function POST(req: NextRequest) {
@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'documentId and fileUrl are required' }, { status: 400 })
   }
 
-  // Verify the document belongs to this user
   const { data: doc, error: docError } = await supabase
     .from('documents')
     .select('id, user_id, file_name')
@@ -50,16 +49,43 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Initialise Anthropic client only when needed (not at module load time)
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     })
 
     const isImage = /\.(jpg|jpeg|png|webp)$/i.test(doc.file_name)
+    const isPDF = /\.pdf$/i.test(doc.file_name)
     let extractedData = null
 
-    if (isImage) {
-      // Fetch image and convert to base64 for Claude vision
+    if (isPDF) {
+      // Fetch PDF bytes and extract text using dynamic import
+      const pdfRes = await fetch(fileUrl)
+      const pdfBuffer = await pdfRes.arrayBuffer()
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse')
+      const pdfData = await pdfParse(Buffer.from(pdfBuffer))
+      const pdfText = (pdfData.text as string).slice(0, 3000)
+
+      const response = await anthropic.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 500,
+        messages: [
+          {
+            role: 'user',
+            content: `${EXTRACTION_PROMPT}\n\nHere is the extracted text from the PDF:\n\n${pdfText}`,
+          },
+        ],
+      })
+
+      const content = response.content[0]?.type === 'text' ? response.content[0].text : ''
+      try {
+        const cleaned = content.replace(/```json\n?|```/g, '').trim()
+        extractedData = JSON.parse(cleaned)
+      } catch {
+        extractedData = { confidence: 0.1 }
+      }
+
+    } else if (isImage) {
       const imageRes = await fetch(fileUrl)
       const imageBuffer = await imageRes.arrayBuffer()
       const base64 = Buffer.from(imageBuffer).toString('base64')
@@ -83,33 +109,21 @@ export async function POST(req: NextRequest) {
       })
 
       const content = response.content[0]?.type === 'text' ? response.content[0].text : ''
-      extractedData = JSON.parse(content.trim())
-    } else {
-      // For PDFs — use text-only prompt with filename context
-      const response = await anthropic.messages.create({
-        model: 'claude-opus-4-5',
-        max_tokens: 500,
-        messages: [
-          {
-            role: 'user',
-            content: `${EXTRACTION_PROMPT}\n\nThis is a PDF document. File name: ${doc.file_name}\n\nBased on the file name, provide your best extraction attempt with low confidence since you cannot read the content directly.`,
-          },
-        ],
-      })
-
-      const content = response.content[0]?.type === 'text' ? response.content[0].text : ''
       try {
-        extractedData = JSON.parse(content.trim())
+        const cleaned = content.replace(/```json\n?|```/g, '').trim()
+        extractedData = JSON.parse(cleaned)
       } catch {
         extractedData = { confidence: 0.1 }
       }
+
+    } else {
+      extractedData = { confidence: 0.1 }
     }
 
     if (!extractedData) {
       return NextResponse.json({ error: 'Could not extract data' }, { status: 422 })
     }
 
-    // Update document record with extracted data
     const { error: updateError } = await supabase
       .from('documents')
       .update({
