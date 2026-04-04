@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { createServerClient } from '@/lib/supabase/server'
 import { formatCurrency, NDIS_CATEGORIES } from '@/lib/utils'
 import { Budget, Document } from '@/types'

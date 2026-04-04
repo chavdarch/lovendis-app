@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import DocumentUploadClient from '@/components/DocumentUploadClient'
 import { createServerClient } from '@/lib/supabase/server'
 

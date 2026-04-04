@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { createServerClient } from '@/lib/supabase/server'
 import { formatCurrency, formatDate, getGreeting, daysUntil, NDIS_CATEGORIES } from '@/lib/utils'
 import { Document } from '@/types'
