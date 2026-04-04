@@ -57,11 +57,11 @@ export default function DocumentUploadClient({ userId, participants }: Props) {
       setUploadProgress(50)
 
       // 2. Get public URL (signed URL since bucket is private)
-      const { data: { signedUrl } } = await supabase.storage
+      const { data: signedData } = await supabase.storage
         .from('documents')
         .createSignedUrl(filePath, 3600)
 
-      const url = signedUrl || ''
+      const url = signedData?.signedUrl || ''
       setFileUrl(url)
 
       // 3. Create document record
