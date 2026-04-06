@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { Document } from '@/types'
 import { formatCurrency, formatDate, NDIS_CATEGORIES } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { FileText, Trash2, ExternalLink, Filter } from 'lucide-react'
+import { FileText, Trash2, ExternalLink, Filter, Search } from 'lucide-react'
 import CategoryBadge from '@/components/CategoryBadge'
 import { useRouter } from 'next/navigation'
 
@@ -19,9 +19,37 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
   const [documents, setDocuments] = useState(initialDocuments)
   const [filterCategory, setFilterCategory] = useState('')
   const [filterType, setFilterType] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Document[]>([])
+  const [isSearching, setIsSearching] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const filtered = documents.filter(doc => {
+  const handleSearch = useCallback(async (query: string) => {
+    setSearchQuery(query)
+    if (!query.trim()) {
+      setSearchResults([])
+      return
+    }
+    setIsSearching(true)
+    try {
+      const res = await fetch('/api/documents/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, query, limit: 10 }),
+      })
+      const data = await res.json()
+      setSearchResults(data.results || [])
+    } catch (err) {
+      console.error('Search error:', err)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }, [userId])
+
+  const displayDocs = searchQuery.trim() ? searchResults : documents
+
+  const filtered = displayDocs.filter(doc => {
     if (filterCategory && doc.support_category !== filterCategory) return false
     if (filterType && doc.file_type !== filterType) return false
     return true
@@ -44,6 +72,19 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
 
   return (
     <div className="space-y-4">
+      {/* Search */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <input
+          type="text"
+          placeholder="Search documents by provider, description, or keyword..."
+          value={searchQuery}
+          onChange={e => handleSearch(e.target.value)}
+          className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+        />
+        {isSearching && <p className="text-xs text-gray-400 mt-2">Searching...</p>}
+        {searchQuery && !isSearching && <p className="text-xs text-gray-400 mt-2">Found {filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>}
+      </div>
+
       {/* Filters */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-center">
         <Filter className="w-4 h-4 text-gray-400" />
@@ -77,7 +118,7 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
             Clear filters
           </button>
         )}
-        <span className="text-xs text-gray-400 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>
+        {!searchQuery && <span className="text-xs text-gray-400 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>}
       </div>
 
       {/* Table */}

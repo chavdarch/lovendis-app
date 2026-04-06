@@ -142,6 +142,39 @@ export default function DocumentUploadClient({ userId, participants }: Props) {
       return
     }
 
+    // Generate and store vector embedding for semantic search
+    // Combine all text fields for better embeddings
+    const textToEmbed = [
+      extracted.provider_name,
+      extracted.description,
+      file?.name,
+      extracted.document_type,
+      extracted.support_category,
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    if (textToEmbed.trim().length > 0) {
+      try {
+        const embedRes = await fetch('/api/documents/embed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId: docId,
+            text: textToEmbed,
+          }),
+        })
+
+        if (!embedRes.ok) {
+          const embedError = await embedRes.json()
+          console.warn('Embedding failed:', embedError.error)
+          // Don't block the flow if embedding fails — document is still saved
+        }
+      } catch (err: unknown) {
+        console.warn('Embedding error:', err instanceof Error ? err.message : 'Unknown error')
+      }
+    }
+
     setState('done')
     setTimeout(() => router.push('/documents'), 1500)
   }
