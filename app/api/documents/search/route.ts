@@ -227,7 +227,7 @@ async function performKeywordSearch(
 
   // Score documents based on keyword matches
   const scored = documents
-    .map((doc) => {
+    .map((doc: any) => {
       const searchText = `${doc.file_name || ''} ${doc.provider_name || ''} ${doc.description || ''} ${doc.support_category || ''}`.toLowerCase()
       const matchCount = keywords.filter(k => searchText.includes(k)).length
       const score = matchCount / keywords.length
