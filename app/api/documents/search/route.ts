@@ -241,7 +241,7 @@ async function performKeywordSearch(
     .sort((a: any, b: any) => b.score - a.score)
     .slice(0, limit)
 
-  const results: SearchResult[] = scored.map(({ doc, score }) => ({
+  const results: SearchResult[] = scored.map(({ doc, score }: any) => ({
     id: doc.id,
     file_name: doc.file_name,
     provider_name: doc.provider_name,
