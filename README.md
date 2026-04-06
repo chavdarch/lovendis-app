@@ -2,7 +2,7 @@
 
 **Family-first NDIS document management for Australian families.**
 
-loveNDIS makes it simple to organise NDIS receipts, invoices, and therapy reports. Upload a document, and AI extracts the key details automatically. Track your NDIS budget by support category. No more spreadsheets.
+loveNDIS makes it simple to organise NDIS receipts, invoices, and therapy reports. Upload a document, and AI extracts the key details automatically. Search documents by provider, description, or keywords using semantic search. Track your NDIS budget by support category. No more spreadsheets.
 
 ---
 
@@ -12,7 +12,8 @@ loveNDIS makes it simple to organise NDIS receipts, invoices, and therapy report
 |-------|-----------|
 | Framework | Next.js 14 (App Router) |
 | Database + Auth | Supabase (PostgreSQL + Auth + Storage) |
-| AI Extraction | OpenAI GPT-4o |
+| AI Extraction | Anthropic Claude (native PDF support) |
+| Vector Search | Supabase pgvector + Anthropic embeddings |
 | Styling | Tailwind CSS |
 | UI Components | shadcn/ui + Radix UI |
 | Deployment | Vercel |
@@ -24,7 +25,8 @@ loveNDIS makes it simple to organise NDIS receipts, invoices, and therapy report
 
 - 🔐 **Auth** — Email/password sign up & login via Supabase
 - 📄 **Document Upload** — Drag & drop PDF/JPG/PNG uploads
-- 🤖 **AI Extraction** — GPT-4o reads receipts & invoices, extracts provider, date, amount, and NDIS category
+- 🤖 **AI Extraction** — Claude reads receipts & invoices, extracts provider, date, amount, and NDIS category (95% accuracy)
+- 🔍 **Semantic Search** — Find documents by meaning ("show me all speech therapy invoices") using vector embeddings
 - 💰 **Budget Tracking** — Set allocations per NDIS support category, track spending vs budget
 - 👤 **Participants** — Support multiple NDIS participants per family
 - 📊 **Dashboard** — Overview of spending, document stats, plan timeline
@@ -38,12 +40,12 @@ loveNDIS makes it simple to organise NDIS receipts, invoices, and therapy report
 - Node.js 18+ 
 - npm or pnpm
 - A Supabase account (free tier works)
-- An OpenAI API key
+- An Anthropic API key
 
 ### 1. Clone and install
 
 ```bash
-git clone <your-repo>
+git clone https://github.com/chavdarch/lovendis-app.git
 cd lovendis-app
 npm install
 ```
@@ -60,8 +62,9 @@ Edit `.env.local` and fill in your values (see below).
 
 1. Create a new project at [supabase.com](https://supabase.com)
 2. Go to **SQL Editor** in your Supabase dashboard
-3. Run `supabase/schema.sql` — creates all tables with RLS policies
-4. Run `supabase/storage.sql` — creates the documents storage bucket
+3. Run `migrations/001_add_vector_embeddings.sql` — enables pgvector extension for semantic search
+4. Run `supabase/schema.sql` — creates all tables with RLS policies
+5. Run `supabase/storage.sql` — creates the documents storage bucket
 
 ### 4. Run the development server
 
@@ -80,7 +83,7 @@ Open [http://localhost:3000](http://localhost:3000)
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL | Supabase Dashboard → Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous/public key | Supabase Dashboard → Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-only!) | Supabase Dashboard → Settings → API |
-| `OPENAI_API_KEY` | OpenAI API key | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for extraction & embeddings | [console.anthropic.com](https://console.anthropic.com) |
 
 > ⚠️ **Security:** Never commit `.env.local` to git. The `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS — keep it server-side only.
 
@@ -94,31 +97,54 @@ Open [http://localhost:3000](http://localhost:3000)
 2. Choose a name, database password, and region (Australia recommended: `ap-southeast-2`)
 3. Wait for project to spin up (~2 min)
 
-### 2. Run Schema SQL
+### 2. Run Vector Extension SQL
 
 1. In Supabase dashboard → **SQL Editor** → **New Query**
+2. Paste the contents of `migrations/001_add_vector_embeddings.sql`
+3. Click **Run**
+
+This enables pgvector for semantic document search.
+
+### 3. Run Schema SQL
+
+1. New Query in SQL Editor
 2. Paste the contents of `supabase/schema.sql`
 3. Click **Run**
 
-### 3. Run Storage SQL
+### 4. Run Storage SQL
 
 1. New Query in SQL Editor
 2. Paste the contents of `supabase/storage.sql`
 3. Click **Run**
 
-### 4. Enable Email Auth
+### 5. Enable Email Auth
 
 1. Supabase dashboard → **Authentication** → **Providers**
 2. Ensure **Email** is enabled
 3. Optionally disable email confirmation for development:
    - Authentication → Settings → Disable "Confirm email"
 
-### 5. Copy API Keys
+### 6. Copy API Keys
 
 1. Settings → API
 2. Copy `URL` → `NEXT_PUBLIC_SUPABASE_URL`
 3. Copy `anon public` key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 4. Copy `service_role` key → `SUPABASE_SERVICE_ROLE_KEY`
+
+---
+
+## How Vector Search Works
+
+When you upload a document:
+
+1. **Extraction** — Claude reads the PDF/image and extracts provider, date, amount, category
+2. **Embedding** — The document text is converted to a vector (1536 dimensions) using Anthropic embeddings
+3. **Storage** — The embedding is stored in Supabase pgvector alongside the document metadata
+4. **Search** — When you search, your query is embedded and compared against all document embeddings using cosine similarity
+
+Result: Find documents by meaning, not just keywords.
+
+**Cost:** ~$0.0002 per document for embeddings (negligible at scale)
 
 ---
 
@@ -158,14 +184,16 @@ lovendis-app/
 │   ├── (dashboard)/
 │   │   ├── layout.tsx      # Sidebar + auth guard
 │   │   ├── dashboard/      # Overview dashboard
-│   │   ├── documents/      # Document list + upload
+│   │   ├── documents/      # Document list + search + upload
 │   │   ├── budget/         # Budget tracking
 │   │   ├── participants/   # Participant management
 │   │   └── settings/       # Account settings
 │   ├── api/
 │   │   └── documents/
-│   │       ├── route.ts          # GET/POST documents
-│   │       └── extract/route.ts  # AI extraction endpoint
+│   │       ├── route.ts           # GET/POST documents
+│   │       ├── extract/route.ts   # AI extraction endpoint
+│   │       ├── embed/route.ts     # Vector embedding endpoint
+│   │       └── search/route.ts    # Semantic search endpoint
 │   └── layout.tsx          # Root layout
 ├── components/
 │   ├── Sidebar.tsx
@@ -173,6 +201,7 @@ lovendis-app/
 │   ├── BudgetProgress.tsx
 │   ├── SpendingChart.tsx
 │   ├── DocumentCard.tsx
+│   ├── DocumentSearch.tsx
 │   ├── DocumentUploadClient.tsx
 │   ├── DocumentsClientWrapper.tsx
 │   ├── BudgetClientWrapper.tsx
@@ -188,6 +217,8 @@ lovendis-app/
 ├── supabase/
 │   ├── schema.sql          # Database schema + RLS
 │   └── storage.sql         # Storage bucket + policies
+├── migrations/
+│   └── 001_add_vector_embeddings.sql  # pgvector setup
 └── middleware.ts           # Route protection
 ```
 
