@@ -4,7 +4,7 @@ import { useState, useCallback } from 'react'
 import { Document } from '@/types'
 import { formatCurrency, formatDate, NDIS_CATEGORIES } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { FileText, Trash2, ExternalLink, Filter, Search } from 'lucide-react'
+import { FileText, Trash2, ExternalLink, Filter, Search, Download } from 'lucide-react'
 import CategoryBadge from '@/components/CategoryBadge'
 import { useRouter } from 'next/navigation'
 
@@ -55,6 +55,48 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
     return true
   })
 
+  function escapeCSV(value: string | null | undefined): string {
+    if (value === null || value === undefined) return ''
+    const str = String(value)
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
+  function handleExportCSV() {
+    if (filtered.length === 0) {
+      alert('No documents to export')
+      return
+    }
+
+    const headers = ['Provider', 'Date', 'Amount', 'Category', 'Description', 'File Name']
+    const rows = filtered.map(doc => [
+      escapeCSV(doc.provider_name),
+      escapeCSV(doc.doc_date ? formatDate(doc.doc_date) : ''),
+      escapeCSV(doc.amount ? formatCurrency(doc.amount) : ''),
+      escapeCSV(doc.support_category ? `${doc.support_category} - ${NDIS_CATEGORIES[doc.support_category]?.name || ''}` : ''),
+      escapeCSV(doc.description),
+      escapeCSV(doc.file_name),
+    ])
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    const today = new Date().toISOString().split('T')[0]
+    link.setAttribute('href', url)
+    link.setAttribute('download', `lovendis-documents-${today}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   async function handleDelete(doc: Document) {
     if (!confirm(`Delete "${doc.file_name}"? This cannot be undone.`)) return
     setDeletingId(doc.id)
@@ -85,7 +127,7 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
         {searchQuery && !isSearching && <p className="text-xs text-gray-400 mt-2">Found {filtered.length} result{filtered.length !== 1 ? 's' : ''}</p>}
       </div>
 
-      {/* Filters */}
+      {/* Filters and Export */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-center">
         <Filter className="w-4 h-4 text-gray-400" />
         <select
@@ -119,6 +161,14 @@ export default function DocumentsClientWrapper({ initialDocuments, userId }: Pro
           </button>
         )}
         {!searchQuery && <span className="text-xs text-gray-400 ml-auto">{filtered.length} result{filtered.length !== 1 ? 's' : ''}</span>}
+        <button
+          onClick={handleExportCSV}
+          disabled={filtered.length === 0}
+          className="flex items-center gap-1.5 text-sm text-primary-600 font-medium hover:bg-primary-50 px-3 py-1.5 rounded-lg transition-colors disabled:text-gray-300 disabled:cursor-not-allowed ml-auto"
+        >
+          <Download className="w-4 h-4" />
+          Export CSV
+        </button>
       </div>
 
       {/* Table */}
