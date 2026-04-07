@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   Heart,
+  MessageCircle,
 } from 'lucide-react'
 
 interface SidebarProps {
@@ -24,6 +25,7 @@ interface SidebarProps {
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/documents', label: 'Documents', icon: FileText },
+  { href: '/ask', label: 'Ask Documents', icon: MessageCircle },
   { href: '/budget', label: 'Budget', icon: DollarSign },
   { href: '/participants', label: 'Participants', icon: Users },
   { href: '/settings', label: 'Settings', icon: Settings },
