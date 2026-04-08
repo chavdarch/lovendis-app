@@ -49,11 +49,13 @@ export async function POST(req: NextRequest) {
       if (!fullText.trim()) continue
 
       // Chunk the text
-      const chunks = chunkText(fullText, 500, 1000)
+      const chunkObjects = chunkText(fullText, 500, 1000)
 
       // Create chunks in database
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i]
+      for (let i = 0; i < chunkObjects.length; i++) {
+        const chunkObj = chunkObjects[i]
+        const chunkContent = chunkObj.content
+        const chunkTokens = chunkObj.tokens
 
         // Get embedding for this chunk
         let embedding: number[] | null = null
@@ -67,7 +69,7 @@ export async function POST(req: NextRequest) {
             },
             body: JSON.stringify({
               model: 'text-embedding-3-small',
-              input: chunk,
+              input: chunkContent,
             }),
           })
 
@@ -87,8 +89,8 @@ export async function POST(req: NextRequest) {
               user_id: session.user.id,
               document_id: doc.id,
               chunk_index: i,
-              content: chunk,
-              tokens: Math.ceil(chunk.split(/\s+/).length * 1.3), // Rough estimate
+              content: chunkContent,
+              tokens: chunkTokens,
               doc_type: doc.file_type || 'other',
               doc_date: doc.doc_date,
               provider_name: doc.provider_name,
