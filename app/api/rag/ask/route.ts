@@ -46,8 +46,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 1: Retrieve relevant chunks via RAG retrieval
+    // Build absolute URL based on request host
+    const host = req.headers.get('host') || 'localhost:3000'
+    const protocol = req.headers.get('x-forwarded-proto') || 'https'
+    const baseUrl = `${protocol}://${host}`
+    
     const retrieveResponse = await fetch(
-      `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/rag/retrieve`,
+      `${baseUrl}/api/rag/retrieve`,
       {
         method: 'POST',
         headers: {
