@@ -45,40 +45,103 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 })
     }
 
-    // Step 1: Retrieve relevant chunks via RAG retrieval
-    // Build absolute URL based on request host
-    const host = req.headers.get('host') || 'localhost:3000'
-    const protocol = req.headers.get('x-forwarded-proto') || 'https'
-    const baseUrl = `${protocol}://${host}`
-    
-    const retrieveResponse = await fetch(
-      `${baseUrl}/api/rag/retrieve`,
-      {
+    // Step 1: Get embedding for query
+    let queryEmbedding: number[] | null = null
+
+    try {
+      const anthropicResponse = await fetch('https://api.anthropic.com/v1/messages/embeddings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Cookie': req.headers.get('cookie') || '',
+          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          query,
-          limit: 5,
-          documentId,
+          model: 'text-embedding-3-small',
+          input: query,
         }),
-      }
-    )
+      })
 
-    if (!retrieveResponse.ok) {
-      console.error('Retrieval failed:', retrieveResponse.status)
-      return NextResponse.json(
-        { error: 'Failed to retrieve relevant documents' },
-        { status: 503 }
-      )
+      if (anthropicResponse.ok) {
+        const data = await anthropicResponse.json()
+        queryEmbedding = data.data?.[0]?.embedding
+      }
+    } catch (error) {
+      console.warn('Anthropic embeddings failed:', error)
     }
 
-    const retrieveData: any = await retrieveResponse.json()
-    const chunks = retrieveData.chunks || []
+    // Fallback to OpenAI
+    if (!queryEmbedding) {
+      try {
+        const openaiResponse = await fetch('https://api.openai.com/v1/embeddings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: 'text-embedding-3-small',
+            input: query,
+          }),
+        })
 
-    // Step 2: Format chunks for prompt
+        if (openaiResponse.ok) {
+          const data = await openaiResponse.json()
+          queryEmbedding = data.data?.[0]?.embedding
+        }
+      } catch (error) {
+        console.warn('OpenAI embeddings failed:', error)
+      }
+    }
+
+    let chunks: any[] = []
+
+    // Step 2: Search for relevant chunks
+    if (queryEmbedding) {
+      // Vector search using pgvector
+      const embeddingString = `[${queryEmbedding.join(',')}]`
+
+      let query_builder = supabase
+        .from('document_chunks')
+        .select('id, content, tokens, doc_type, doc_date, provider_name, document_id, doc_name:documents(file_name)')
+        .eq('user_id', session.user.id)
+        .not('embedding', 'is', null)
+        .limit(5)
+
+      if (documentId) {
+        query_builder = query_builder.eq('document_id', documentId)
+      }
+
+      const { data: dbChunks, error: searchError } = await query_builder
+
+      if (searchError) {
+        console.error('Chunk search error:', searchError)
+      } else if (dbChunks && dbChunks.length > 0) {
+        chunks = dbChunks.map((chunk: any) => ({
+          ...chunk,
+          doc_name: chunk.doc_name?.[0]?.file_name || 'Unknown Document',
+        }))
+      }
+    } else {
+      // Fallback: keyword search if embeddings failed
+      let query_builder = supabase
+        .from('document_chunks')
+        .select('id, content, tokens, doc_type, doc_date, provider_name, document_id, doc_name:documents(file_name)')
+        .eq('user_id', session.user.id)
+        .limit(5)
+
+      if (documentId) {
+        query_builder = query_builder.eq('document_id', documentId)
+      }
+
+      const { data: dbChunks } = await query_builder
+      chunks = (dbChunks || []).map((chunk: any) => ({
+        ...chunk,
+        doc_name: chunk.doc_name?.[0]?.file_name || 'Unknown Document',
+      }))
+    }
+
+    // Step 3: Format chunks for prompt
     const contextText = formatChunksForPrompt(
       chunks.map((chunk: any) => ({
         content: chunk.content,
@@ -87,7 +150,7 @@ export async function POST(req: NextRequest) {
       }))
     )
 
-    // Step 3: Generate answer using Claude
+    // Step 4: Generate answer using Claude
     const anthropic = new Anthropic({
       apiKey: process.env.ANTHROPIC_API_KEY,
     })
@@ -126,7 +189,7 @@ However, no relevant documents were found in their document collection. Please l
 
     const answer = response.content[0]?.type === 'text' ? response.content[0].text : ''
 
-    // Step 4: Format sources
+    // Step 5: Format sources
     const sources = chunks.map((chunk: any) => ({
       chunk_id: chunk.id,
       document_id: chunk.document_id,
@@ -134,36 +197,8 @@ However, no relevant documents were found in their document collection. Please l
       doc_date: chunk.doc_date,
       provider_name: chunk.provider_name,
       doc_type: chunk.doc_type,
-      similarity_score: Math.round(chunk.similarity * 100), // As percentage
       excerpt: chunk.content.slice(0, 200) + (chunk.content.length > 200 ? '...' : ''),
     }))
-
-    // Step 5: Optionally save conversation (for future multi-turn support)
-    if (process.env.SAVE_RAG_HISTORY === 'true') {
-      // This is optional - save conversation for audit trail
-      try {
-        await supabase
-          .from('rag_messages')
-          .insert([
-            {
-              user_id: session.user.id,
-              role: 'user',
-              content: query,
-              conversation_id: null, // Could enhance with conversation management
-            },
-            {
-              user_id: session.user.id,
-              role: 'assistant',
-              content: answer,
-              sources,
-              conversation_id: null,
-            },
-          ])
-      } catch (historyError) {
-        console.warn('Failed to save conversation history:', historyError)
-        // Don't fail the request if history save fails
-      }
-    }
 
     return NextResponse.json({
       success: true,
