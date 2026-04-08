@@ -19,11 +19,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    const userId = session.user.id
+
     // Get all documents for this user
     const { data: documents, error: docError } = await supabase
       .from('documents')
       .select('*')
-      .eq('user_id', session.user.id)
+      .eq('user_id', userId)
 
     if (docError || !documents) {
       return NextResponse.json({ error: 'Failed to fetch documents' }, { status: 500 })
