@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
 import { ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 
 interface Source {
@@ -222,17 +221,17 @@ export function DocumentRAGChat({ documentId }: DocumentRAGChatProps) {
             disabled={loading}
             className="flex-1 px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-200 disabled:cursor-not-allowed text-sm"
           />
-          <Button
+          <button
             onClick={() => handleAsk(query)}
             disabled={loading || !query.trim()}
-            className="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 flex items-center gap-2"
+            className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg px-4 py-2 flex items-center gap-2 transition-colors disabled:cursor-not-allowed"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <ArrowRight className="w-4 h-4" />
             )}
-          </Button>
+          </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
           💡 Tip: Be specific with dates, providers, or categories for better results
