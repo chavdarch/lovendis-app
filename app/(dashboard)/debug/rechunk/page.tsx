@@ -1,13 +1,8 @@
-export const dynamic = 'force-dynamic'
+'use client'
 
-import { createServerClient } from '@/lib/supabase/server'
+import { useState } from 'react'
 
-export default async function RechunkPage() {
-  const supabase = createServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) return null
-
+export default function RechunkPage() {
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <div>
@@ -15,17 +10,15 @@ export default async function RechunkPage() {
         <p className="text-gray-600 mt-2">Create chunks from your existing documents for RAG</p>
       </div>
 
-      <RechunkButton userId={user.id} />
+      <RechunkButton />
     </div>
   )
 }
 
-function RechunkButton({ userId }: { userId: string }) {
-  'use client'
-
-  const [loading, setLoading] = require('react').useState(false)
-  const [result, setResult] = require('react').useState<any>(null)
-  const [error, setError] = require('react').useState<string | null>(null)
+function RechunkButton() {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleRechunk = async () => {
     setLoading(true)
